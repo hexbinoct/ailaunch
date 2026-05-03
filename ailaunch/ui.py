@@ -119,6 +119,32 @@ def _format_row(options, i, idx):
     return prefix + body
 
 
+HINT_TEXT = (
+    "↑↓ navigate   Enter select   1-9 jump   "
+    "c launch here   d delete   q quit"
+)
+
+
+def _hint_row(options):
+    # title(1) + blank(2) + N options + blank = N + 3, hint is next row
+    return OPTIONS_START_ROW + len(options) + 1
+
+
+def _write_hint(options):
+    sys.stdout.write(
+        f"\033[{_hint_row(options)};1H\033[2K  {GRAY}{HINT_TEXT}{RESET}"
+    )
+    sys.stdout.flush()
+
+
+def _write_confirm(options, path):
+    msg = f"Delete {trunc(path, 50)}?  {BOLD}[y]{RESET} yes   {BOLD}[n]{RESET} no"
+    sys.stdout.write(
+        f"\033[{_hint_row(options)};1H\033[2K  {YELLOW}{msg}{RESET}"
+    )
+    sys.stdout.flush()
+
+
 def render(options, idx):
     rows = []
     rows.append(f"  {BOLD}{CYAN}ailaunch{RESET}{BOLD} — AI CLI Launcher{RESET}")
@@ -128,10 +154,7 @@ def render(options, idx):
         rows.append(_format_row(options, i, idx))
 
     rows.append("")
-    rows.append(
-        f"  {GRAY}↑↓ navigate   Enter select   1-9 jump   "
-        f"c launch here   d delete   q quit{RESET}"
-    )
+    rows.append(f"  {GRAY}{HINT_TEXT}{RESET}")
 
     sys.stdout.write(CLEAR + HIDE_C + "\n".join(rows))
     sys.stdout.flush()
@@ -206,11 +229,16 @@ def pick_location(current_dir: str, saved_locations: list, db) -> str | None:
             elif key in ("d", "D"):
                 if selected > 0:
                     path_to_del = options[selected]["path"]
-                    db.remove_location(path_to_del)
-                    options.pop(selected)
-                    if selected >= len(options):
-                        selected = len(options) - 1
-                    render(options, selected)
+                    _write_confirm(options, path_to_del)
+                    confirm = getch()
+                    if confirm in ("y", "Y"):
+                        db.remove_location(path_to_del)
+                        options.pop(selected)
+                        if selected >= len(options):
+                            selected = len(options) - 1
+                        render(options, selected)
+                    else:
+                        _write_hint(options)
 
     finally:
         sys.stdout.write(SHOW_C + CLEAR)
