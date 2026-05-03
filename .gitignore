@@ -6,3 +6,8 @@ dist/
 build/
 .env
 .claude/
+
+# Vim swap/backup/undo files
+*~
+*.un~
+*.swp

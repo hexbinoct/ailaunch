@@ -22,6 +22,9 @@ CLEAR   = "\033[2J\033[H"
 HIDE_C  = "\033[?25l"
 SHOW_C  = "\033[?25h"
 
+# Row 1: title, row 2: blank, rows 3..3+N-1: options
+OPTIONS_START_ROW = 3
+
 
 def getch():
     """Read one keypress and return a normalised key name or character."""
@@ -88,40 +91,41 @@ def trunc(path, width=56):
     return path if len(path) <= width else "…" + path[-(width - 1):]
 
 
+def _format_row(options, i, idx):
+    opt = options[i]
+    is_cur  = opt.get("is_current", False)
+    exists  = os.path.isdir(opt["path"])
+    age     = format_age(opt.get("last_used", ""))
+
+    if is_cur:
+        badge = f"{GREEN}*{RESET} {YELLOW}[here]{RESET}"
+    else:
+        badge = f"{GRAY}{i}{RESET}      "
+
+    path_col = RESET if exists else GRAY
+    path_str = trunc(opt["path"])
+    age_str  = f"  {GRAY}{age}{RESET}" if age else ""
+
+    if not exists:
+        path_str += f"  {RED}(missing){RESET}"
+
+    body = f"{badge}  {path_col}{path_str}{RESET}{age_str}"
+
+    if i == idx:
+        prefix = f"  {BOLD}{GREEN}▶{RESET}   "
+    else:
+        prefix = "      "
+
+    return prefix + body
+
+
 def render(options, idx):
     rows = []
-    rows.append(f"  {BOLD}{CYAN}claunch{RESET}{BOLD} — Claude Code Launcher{RESET}")
+    rows.append(f"  {BOLD}{CYAN}ailaunch{RESET}{BOLD} — AI CLI Launcher{RESET}")
     rows.append("")
 
-    for i, opt in enumerate(options):
-        is_cur  = opt.get("is_current", False)
-        exists  = os.path.isdir(opt["path"])
-        age     = format_age(opt.get("last_used", ""))
-
-        # Left badge
-        if is_cur:
-            badge = f"{GREEN}*{RESET} {YELLOW}[here]{RESET}"
-            pad   = ""
-        else:
-            badge = f"{GRAY}{i}{RESET}      "
-            pad   = ""
-
-        path_col = RESET if exists else GRAY
-        path_str = trunc(opt["path"])
-        age_str  = f"  {GRAY}{age}{RESET}" if age else ""
-
-        if not exists:
-            path_str += f"  {RED}(missing){RESET}"
-
-        line = f"    {badge}  {path_col}{path_str}{RESET}{age_str}"
-
-        if i == idx:
-            # Highlight selected row with a leading arrow
-            line = "\033[K" + f"  {BOLD}{GREEN}▶{RESET} " + line.lstrip()
-        else:
-            line = "    " + line.lstrip()
-
-        rows.append(line)
+    for i in range(len(options)):
+        rows.append(_format_row(options, i, idx))
 
     rows.append("")
     rows.append(
@@ -130,6 +134,19 @@ def render(options, idx):
     )
 
     sys.stdout.write(CLEAR + HIDE_C + "\n".join(rows))
+    sys.stdout.flush()
+
+
+def update_selection(options, prev_idx, new_idx):
+    """Redraw only the two rows whose selection state changed."""
+    if prev_idx == new_idx:
+        return
+    parts = []
+    for i in (prev_idx, new_idx):
+        # Move to row, clear it, write fresh content
+        parts.append(f"\033[{OPTIONS_START_ROW + i};1H\033[2K")
+        parts.append(_format_row(options, i, new_idx))
+    sys.stdout.write("".join(parts))
     sys.stdout.flush()
 
 
@@ -146,11 +163,12 @@ def pick_location(current_dir: str, saved_locations: list, db) -> str | None:
             options.append(loc)
 
     selected = 0
+    render(options, selected)
 
     try:
         while True:
-            render(options, selected)
             key = getch()
+            prev = selected
 
             # ── quit ──────────────────────────────────────────────
             if key in ("q", "Q", "\x03", "\x1b"):
@@ -167,12 +185,16 @@ def pick_location(current_dir: str, saved_locations: list, db) -> str | None:
             # ── navigation ────────────────────────────────────────
             elif key == "UP":
                 selected = max(0, selected - 1)
+                update_selection(options, prev, selected)
             elif key == "DOWN":
                 selected = min(len(options) - 1, selected + 1)
+                update_selection(options, prev, selected)
             elif key == "HOME":
                 selected = 0
+                update_selection(options, prev, selected)
             elif key == "END":
                 selected = len(options) - 1
+                update_selection(options, prev, selected)
 
             # ── number jump (1-9 map to saved entries, not current) ──
             elif key.isdigit() and key != "0":
@@ -188,6 +210,7 @@ def pick_location(current_dir: str, saved_locations: list, db) -> str | None:
                     options.pop(selected)
                     if selected >= len(options):
                         selected = len(options) - 1
+                    render(options, selected)
 
     finally:
         sys.stdout.write(SHOW_C + CLEAR)

@@ -2,7 +2,7 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime
 
-DB_PATH = Path.home() / ".claunch.db"
+DB_PATH = Path.home() / ".ailaunch.db"
 
 
 class Database:
